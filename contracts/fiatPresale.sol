@@ -148,10 +148,10 @@ library SafeMath {
 
 contract FiatPresale is Ownable {
     using SafeMath for uint256;
-    // the time set for the installments 
-    uint256 public oneMonthTime = 2591999;
+
+    // uint256 public oneMonthTime = 2591999;
     // for testing purpose 5 sec time
-    // uint256 public oneMonthTime = 10;
+    uint256 public oneMonthTime = 10;
     IERC20 public token;
     mapping(address => uint256) public claimable;
 
@@ -168,63 +168,48 @@ contract FiatPresale is Ownable {
     mapping(address => User) public users;
     mapping(address => bool) public registeredusers;
 
-    // inputing value network token and dai token  
     constructor( address _token,address _dai) public {
         token = IERC20(_token);
         dai = IERC20(_dai);
     }
     
-    // only admin can add address to the presale by inputting how many months a user have to pay installment 
-    // the total token amt and total dai to be distributed in _noofmonths of months
+    // function to add user
     function addUser(address _address , uint256 _noofmonths ,uint256 _tokenamount, uint256 _totaldai) public onlyOwner {
         require(!registeredusers[msg.sender],'you are not registered');
         users[_address] = User(now + oneMonthTime.mul(_noofmonths),0,_noofmonths,_tokenamount,_totaldai,_tokenamount.div(_totaldai));
         registeredusers[_address] = true;
     }
     
-    // this function will only return the no of dai can pay till now
-    // for example we have to distribute 6000 token and take 3000 dai in 6 months
-    // so until one month you will get a return of 500 from this function
-    // when two months passes you will get 1000
-    // when three months passes you will get 1500 and so on
+  
+    
     function payinstallment(address _addr) public view returns(uint256) {
         require(registeredusers[_addr],'you are not registered');
         
-        uint a = 1e18;
+       
         if(now > users[_addr].time){
             return users[_addr].daiamount;
         }    
-        uint payableamount = users[_addr].time.sub(now).mul(1e18).div(oneMonthTime);
+        uint timeleft = users[_addr].time.sub(now);
     
         uint amt = users[_addr].daiamount.div(users[_addr].months);
         uint j;
         for(uint i = users[_addr].months;i>0;i--){
-            if(payableamount <= a || payableamount == 0){
+            if(timeleft <= oneMonthTime || timeleft == 0){
                 return amt.mul(users[_addr].months);
             }
             j= j.add(1);
-            if(payableamount > i.sub(1).mul(a)){
+            if(timeleft > i.sub(1).mul(oneMonthTime)){
                 return amt.mul(j);
             }
         }
-    
-     
     }
-    // this function tell the users about how much amount he has to pay for his total installments
-    function pendingamount() public view returns(uint256){
+    
+    function pendingamt() public view returns(uint256){
         uint paidamt = users[msg.sender].amountpaid;
         uint payamt = payinstallment(msg.sender).sub(paidamt);
         return payamt;
     }
     
-    // this is the function where users can pay thier installment by paying dai and they will get VNTW
-    // when on month passes the payinstallment function above will return 500 supporse (6000 token and 3000 dai)
-    // all if will call the function payyouinstallment it will check if the payinstallment function return amt greater than 0
-    // so if we will  input 100 in this function 
-    // calculate amouont one user can pay formula is =  payinstallment(msg.sender) - users[msg.sender].amountpaid
-    // so suppose i can pay 500 but my amount input is 100
-    // so function will take dai and give me token equivalent to that
-    // also it will add the user paid amt in struct
     function payyourinstallment(uint _amount) external {
         require(payinstallment(msg.sender) > 0);
         uint paidamt = users[msg.sender].amountpaid;
@@ -235,6 +220,7 @@ contract FiatPresale is Ownable {
         token.transfer(msg.sender,_amount.mul(users[msg.sender].rate));
         users[msg.sender].amountpaid  =  users[msg.sender].amountpaid.add(_amount);
     }
+    
     
     function getEthBalance() public view returns (uint256) {
         return address(this).balance;
