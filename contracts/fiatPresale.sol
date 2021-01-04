@@ -146,18 +146,16 @@ library SafeMath {
     }
 }
 
-//? use camelCase for function,variables & parms names
-//? use better names of functions, should be self explainatory , also remove similar funct name like payyourinstallment & payinstallment
-//? mention uint256 instead uint , although both are just alias but mentioning uint256 clears any doubts
+
 contract FiatPresale is Ownable {
     using SafeMath for uint256;
     // the time set for the installments 
     // uint256 public oneMonthTime = 2629743;
     // for testing purpose 5 sec time
-    uint256 public oneMonthTime = 300;
-    IERC20 public token;
-    mapping(address => uint256) public claimable;
-
+    uint256 public oneMonthTime = 30;
+    IERC20 public vntwToken;
+    address multiSigAddress;
+    
     IERC20 public dai;
     struct User{
         uint256 time;
@@ -172,68 +170,92 @@ contract FiatPresale is Ownable {
     mapping(address => bool) public registeredusers;
 
     // inputing value network token and dai token  
-    constructor( address _token,address _dai) public {
-        token = IERC20(_token);
+    constructor( address vntwTokenAddr,address _dai,address _multiSigAddress) public {
+        _preValidateAddress(vntwTokenAddr);
+        _preValidateAddress(_dai);
+        _preValidateAddress(_multiSigAddress);
+        vntwToken = IERC20(vntwTokenAddr);
         dai = IERC20(_dai);
+        multiSigAddress = _multiSigAddress;  // this is for the devpool addresses
+        addUser(0xef66f9c4E3205FF3711de7Aa02e13724c6c1F48A,11,14000000000000000000000000,14850000000000000000000);  // Artem
+        addUser(0xEF112cD57Bd2cDEed8bd25C736f3a386e131E9B2,11,11000000000000000000000000,14850000000000000000000);  // Alexander
+        addUser(0x6C620945Ce0F04bd419c38F525d516584A1E304c,8,3500000000000000000000000,16000000000000000000000);    // Den
+        addUser(0xD2489211B2e90936320A979a28c1414e811b2BE6,5,2000000000000000000000000,6750000000000000000000);     // Igor
     }
     
+    function _preValidateAddress(address _addr)
+        internal pure
+      {
+        require(_addr != address(0),'Cant be Zero address');
+      }
+      
     // only admin can add address to the presale by inputting how many months a user have to pay installment 
     // the total token amt and total dai to be distributed in _noofmonths of months
-    function addUser(address _address , uint256 _noofmonths ,uint256 _tokenamount, uint256 _totaldai) public onlyOwner {
-        require(!registeredusers[_address],'this address is already registered'); 
-        users[_address] = User(block.timestamp + oneMonthTime.mul(_noofmonths),0,_noofmonths,_tokenamount,_totaldai,_tokenamount.mul(1e18).div(_totaldai).div(1e18));
-        registeredusers[_address] = true;                            
+    function addUser(address _userAddress , uint256 _months ,uint256 _tokenAmount, uint256 _totalDAI) public onlyOwner {
+        _preValidateAddress(_userAddress);
+        require(!registeredusers[_userAddress],'User already registered'); 
+        
+        users[_userAddress] = User(block.timestamp + oneMonthTime.mul(_months),0,_months,_tokenAmount,_totalDAI,_tokenAmount.mul(1e18).div(_totalDAI));
+        registeredusers[_userAddress] = true;                            
     }
     
     // this function will only return the no of dai can pay till now
-    function maxAmountPayable(address _addr) public view returns(uint256) {
+    function getCurrentInstallment(address _addr) public view returns(uint256) {
         require(registeredusers[_addr],'you are not registered');
         
        
         if(block.timestamp > users[_addr].time){
             return users[_addr].daiamount;
         }    
-        uint timeleft = users[_addr].time.sub(block.timestamp);
+        uint256 timeleft = users[_addr].time.sub(block.timestamp);
     
-        uint amt = users[_addr].daiamount.div(users[_addr].months);
-        uint j;
-        for(uint i = users[_addr].months;i>0;i--){
+        uint256 amt = users[_addr].daiamount.mul(1e18).div(users[_addr].months);
+        uint256 j;
+        for(uint256 i = users[_addr].months;i>0;i--){
             if(timeleft <= oneMonthTime || timeleft == 0){
                 return users[_addr].daiamount;
             }
             j= j.add(1);
             if(timeleft > i.sub(1).mul(oneMonthTime)){
-                return amt.mul(j);
+                return amt.mul(j).div(1e18);
             }
         }
     }
     
     // this function tells how much amount is pending by user that he has to pay
-    function yourPendingAmount() public view returns(uint256){
-        uint256 paidamt = users[msg.sender].amountpaid;
-        uint256 payamt = maxAmountPayable(msg.sender).sub(paidamt);
+    function userTotalInstallmentPending(address _user) public view returns(uint256){
+        uint256 paidamt = users[_user].amountpaid;
+        uint256 payamt = getCurrentInstallment(_user).sub(paidamt);
         return payamt;      
     }
     
 
-    function payYourInstallment(uint _amount) external {
-        require(maxAmountPayable(msg.sender) > 0);
+    function payInstallment(uint256 _amount) external {
         uint256 paidamt = users[msg.sender].amountpaid;
-        require(paidamt < maxAmountPayable(msg.sender));
-        uint256 payamt = maxAmountPayable(msg.sender).sub(paidamt);
-        require(_amount <= payamt);
+        
+        require(getCurrentInstallment(msg.sender) > 0);
+        require(paidamt < getCurrentInstallment(msg.sender));
+        require(_amount <= userTotalInstallmentPending(msg.sender));
+        
         dai.transferFrom(msg.sender,address(this),_amount);
-        token.transfer(msg.sender,_amount.mul(users[msg.sender].rate));
+        uint256 transferrableVNTWtoken = _amount.mul(users[msg.sender].rate).div(1e18);
+        vntwToken.transfer(msg.sender,transferrableVNTWtoken);
+        
         users[msg.sender].amountpaid  =  users[msg.sender].amountpaid.add(_amount);
     }
-
-    function getTokenBalance() public view returns (uint256) {
-        return token.balanceOf(address(this));
+    
+    function getContractTokenBalance(IERC20 _token) public view returns (uint256) {
+        return _token.balanceOf(address(this));
     }
     
-    function adminTokenTrans() external onlyOwner{
-        require(getTokenBalance() > 0,'the contract has no VNTW tokens'); 
-        token.transfer(msg.sender,getTokenBalance());  
+    function changeMultisigAddress(address _multiSigAddress) public onlyOwner {
+        _preValidateAddress(_multiSigAddress);
+        multiSigAddress = _multiSigAddress;
+    }
+    
+    function fundsWithdrawal(IERC20 _token,uint256 value) external onlyOwner{
+        require(getContractTokenBalance(_token) >= value,'the contract doesnt have tokens'); 
+        _token.transfer(multiSigAddress,value);  
     }
 
 }
